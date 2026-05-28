@@ -1,10 +1,6 @@
 import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
-export class CreateUserDto {
-  @IsString({ message: 'Nome precisa ser uma string' })
-  @IsNotEmpty({ message: 'Nome precisa ser preenchido' })
-  name!: string;
-
+export class LoginDto {
   @IsEmail({}, { message: 'Email inválido' })
   email!: string;
 
