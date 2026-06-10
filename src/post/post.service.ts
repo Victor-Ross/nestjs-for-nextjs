@@ -1,26 +1,137 @@
-import { Injectable } from '@nestjs/common';
+import { Repository } from 'typeorm';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+
+import { Post } from './entities/post.entity';
 import { CreatePostDto } from './dto/create-post.dto';
-import { UpdatePostDto } from './dto/update-post.dto';
+import { User } from 'src/user/entities/user.entity';
+import { createSlugFromText } from 'src/common/utils/create-slug-from-text';
 
 @Injectable()
 export class PostService {
-  create(createPostDto: CreatePostDto) {
-    return 'This action adds a new post';
+  private readonly logger = new Logger(PostService.name);
+  constructor(
+    @InjectRepository(Post)
+    private readonly postRepository: Repository<Post>,
+  ) {}
+
+  async findOneOrFail(postData: Partial<Post>) {
+    const post = await this.findOne(postData);
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    return post;
   }
 
-  findAll() {
-    return `This action returns all post`;
+  async findOne(postData: Partial<Post>) {
+    const post = await this.postRepository.findOne({
+      where: postData,
+      relations: { author: true },
+    });
+
+    return post;
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} post`;
+  async findOneOwnedOrFail(postData: Partial<Post>, author: User) {
+    const post = await this.findOneOwned(postData, author);
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    return post;
   }
 
-  update(id: number, updatePostDto: UpdatePostDto) {
-    return `This action updates a #${id} post`;
+  async findOneOwned(postData: Partial<Post>, author: User) {
+    const post = await this.postRepository.findOne({
+      where: {
+        ...postData,
+        author: {
+          id: author.id,
+        },
+      },
+      relations: { author: true },
+    });
+
+    return post;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} post`;
+  async findAll(postData: Partial<Post>) {
+    const posts = await this.postRepository.find({
+      where: postData,
+      order: { createdAt: 'DESC' },
+      relations: { author: true },
+    });
+
+    return posts;
+  }
+
+  async findAllOwned(author: User) {
+    const posts = await this.postRepository.find({
+      where: {
+        author: {
+          id: author.id,
+        },
+      },
+      order: { createdAt: 'DESC' },
+      relations: { author: true },
+    });
+
+    return posts;
+  }
+
+  async update(postData: Partial<Post>, dto: Partial<Post>, author: User) {
+    if (Object.keys(dto).length === 0) {
+      throw new BadRequestException('Nothing to update');
+    }
+
+    const post = await this.findOneOwnedOrFail(postData, author);
+
+    post.title = dto.title ?? post.title;
+    post.slug = dto.slug ?? post.slug;
+    post.content = dto.content ?? post.content;
+    post.excerpt = dto.excerpt ?? post.excerpt;
+    post.published = dto.published ?? post.published;
+
+    return this.postRepository.save(post);
+  }
+
+  async remove(postData: Partial<Post>, author: User) {
+    const post = await this.findOneOrFail(postData);
+    await this.postRepository.delete({
+      ...postData,
+      author: { id: author.id },
+    });
+
+    return post;
+  }
+
+  async create(dto: CreatePostDto, author: User) {
+    const post = this.postRepository.create({
+      slug: createSlugFromText(dto.title),
+      title: dto.title,
+      excerpt: dto.excerpt,
+      content: dto.content,
+      author,
+    });
+
+    const created = await this.postRepository
+      .save(post)
+      .catch((err: unknown) => {
+        if (err instanceof Error) {
+          this.logger.error('Erro ao criar o post', err.stack);
+        }
+
+        throw new BadRequestException('Erro ao criar o post');
+      });
+
+    return created;
   }
 }
